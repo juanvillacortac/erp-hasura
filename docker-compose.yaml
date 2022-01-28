@@ -1,0 +1,58 @@
+version: '3.8'
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    ports:
+      - "1433:1433"
+    expose:
+      # Opens port 3306 on the container
+      - '1433'
+    environment:
+      SA_PASSWORD: "TYLes1utopia."
+      ACCEPT_EULA: "Y"
+    volumes:
+      - ./mssql/scripts:/scripts/
+    command:
+      - /bin/bash
+      - -c 
+      - |
+        # Launch MSSQL and send to background
+        /opt/mssql/bin/sqlservr &
+        # (lame, I know, but there's no nc available to start prodding network ports)
+        sleep 30
+        # Run every script in /scripts
+        # TODO set a flag so that this is only done once on creation, 
+        #      and not every time the container runs
+        for foo in /scripts/*.sql
+          do /opt/mssql-tools/bin/sqlcmd -U sa -P $$SA_PASSWORD -l 30 -e -i $$foo
+        done
+        # So that the container doesn't shut down, sleep this thread
+        sleep infinity
+  postgres:
+    image: postgres:12
+    restart: always
+    volumes:
+    - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgrespassword
+  graphql-engine:
+    image: hasura/graphql-engine:v2.1.1
+    ports:
+    - "8080:8080"
+    depends_on:
+    - "postgres"
+    links:
+    - mssql:db
+    restart: always
+    environment:
+      ## postgres database to store Hasura metadata
+      HASURA_GRAPHQL_METADATA_DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/postgres
+      ## enable the console served by server
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true" # set to "false" to disable console
+      ## enable debugging mode. It is recommended to disable this in production
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      ## uncomment next line to set an admin secret
+      # HASURA_GRAPHQL_ADMIN_SECRET: myadminsecretkey
+volumes:
+  db_data:
